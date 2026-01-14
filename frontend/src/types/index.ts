@@ -9,6 +9,7 @@ export interface UploadResponse {
   success: boolean;
   message: string;
   resume_filename: string;
+  job_desc_filename: string;
   questions_count: number;
   questions: Question[];
 }

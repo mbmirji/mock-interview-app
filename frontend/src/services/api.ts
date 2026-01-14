@@ -1,8 +1,8 @@
 import axios from 'axios';
-import type { UploadResponse, InterviewSession } from '../types';
+import type { UploadResponse } from '../types';
 
 // Base API URL - update this to match your backend URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -31,14 +31,6 @@ export const uploadResumeAndJobDescription = async (
     },
   });
 
-  return response.data;
-};
-
-/**
- * Get interview session by ID
- */
-export const getInterviewSession = async (sessionId: number): Promise<InterviewSession> => {
-  const response = await api.get<InterviewSession>(`/api/v1/sessions/${sessionId}`);
   return response.data;
 };
 
