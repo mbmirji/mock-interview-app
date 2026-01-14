@@ -1,6 +1,9 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Form
 from sqlalchemy.orm import Session
 from typing import List
+import io
+import pdfplumber
+from docx import Document
 from app.database import get_db
 from app.models import Interview
 from app.schemas import InterviewResponse, InterviewQuestionsResponse
@@ -27,52 +30,91 @@ def validate_file_type(filename: str) -> None:
         )
 
 
-@router.post("/upload", response_model=InterviewResponse)
+def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
+    """Extract text from PDF, DOC, DOCX, or TXT file"""
+    file_ext = filename.lower().rsplit(".", 1)[-1]
+
+    if file_ext == "pdf":
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            return "\n".join([page.extract_text() or "" for page in pdf.pages])
+    elif file_ext in ["doc", "docx"]:
+        doc = Document(io.BytesIO(file_bytes))
+        return "\n".join([para.text for para in doc.paragraphs])
+    elif file_ext == "txt":
+        return file_bytes.decode("utf-8")
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported file format: .{file_ext}")
+
+
+@router.post("/upload")
 async def upload_documents(
-    resume: UploadFile = File(...),
-    job_description: UploadFile = File(...),
-    db: Session = Depends(get_db),
+    resume_file: UploadFile = File(...),
+    job_desc_file: UploadFile = File(...),
+    additional_context: str = Form(""),
     llm_service: LLMService = Depends(get_llm_service),
 ):
     """
-    Upload resume and job description, store in database, and generate interview questions.
-    Only accepts PDF and Word documents (.pdf, .doc, .docx).
+    Upload resume file, job description file, and optional context to generate interview questions.
+    NO DATABASE STORAGE - directly returns generated questions.
+
+    Args:
+        resume_file: Resume file (PDF, DOC, DOCX)
+        job_desc_file: Job description file (PDF, DOC, DOCX, TXT)
+        additional_context: Optional additional background information
+
+    Returns:
+        JSON object with questions and answers
     """
     try:
-        # Validate file types
-        validate_file_type(resume.filename)
-        validate_file_type(job_description.filename)
+        # Validate resume file type
+        validate_file_type(resume_file.filename)
 
-        # Read file contents
-        resume_content = (await resume.read()).decode("utf-8")
-        jd_content = (await job_description.read()).decode("utf-8")
+        # Validate job description file type (also allow .txt)
+        job_desc_ext = job_desc_file.filename.lower().rsplit(".", 1)[-1] if "." in job_desc_file.filename else ""
+        allowed_job_desc_exts = {".pdf", ".doc", ".docx", ".txt"}
+        if f".{job_desc_ext}" not in allowed_job_desc_exts:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid job description file type. Allowed: PDF, DOC, DOCX, TXT. Got: .{job_desc_ext}"
+            )
 
-        # Create database entry
-        interview = Interview(
-            resume_filename=resume.filename,
-            resume_content=resume_content,
-            job_description_filename=job_description.filename,
-            job_description_content=jd_content,
-        )
+        # Read and extract text from resume
+        resume_bytes = await resume_file.read()
+        resume_content = extract_text_from_file(resume_bytes, resume_file.filename)
 
-        db.add(interview)
-        db.commit()
-        db.refresh(interview)
+        if not resume_content or resume_content.strip() == "":
+            raise HTTPException(status_code=400, detail="Could not extract text from resume file")
 
-        # Generate questions using LLM
+        # Read and extract text from job description
+        job_desc_bytes = await job_desc_file.read()
+        job_desc_content = extract_text_from_file(job_desc_bytes, job_desc_file.filename)
+
+        if not job_desc_content or job_desc_content.strip() == "":
+            raise HTTPException(status_code=400, detail="Could not extract text from job description file")
+
+        # Combine job description with additional context if provided
+        full_context = job_desc_content
+        if additional_context and additional_context.strip():
+            full_context += f"\n\nADDITIONAL CONTEXT:\n{additional_context.strip()}"
+
+        # Generate questions using LLM (no database storage)
         questions_answers = llm_service.generate_interview_questions(
-            resume_content, jd_content
+            resume_content, full_context
         )
 
-        # Update the interview with generated questions
-        interview.questions_answers = questions_answers
-        db.commit()
-        db.refresh(interview)
+        # Return the questions directly
+        return {
+            "success": True,
+            "message": "Interview questions generated successfully",
+            "resume_filename": resume_file.filename,
+            "job_desc_filename": job_desc_file.filename,
+            "questions_count": len(questions_answers),
+            "questions": questions_answers
+        }
 
-        return interview
-
+    except HTTPException:
+        raise
     except Exception as e:
-        db.rollback()
         raise HTTPException(status_code=500, detail=f"Error processing documents: {str(e)}")
 
 

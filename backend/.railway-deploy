@@ -1,0 +1,55 @@
+# Railway Quick Deploy Reference
+
+## Required Files (All Present ✓)
+- Procfile
+- railway.json
+- nixpacks.toml
+- runtime.txt
+- requirements.txt
+
+## Railway Configuration
+
+### 1. Root Directory
+Set in Railway Settings: `backend`
+
+### 2. Environment Variables
+```
+DATABASE_URL=<your-supabase-url>
+GEMINI_API_KEY=<your-gemini-key>
+GEMINI_MODEL=gemini-2.5-flash
+ENVIRONMENT=production
+```
+
+### 3. Build Command
+```bash
+pip install --upgrade pip && pip install -r requirements.txt
+```
+
+### 4. Start Command
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2
+```
+
+## Deployment Checklist
+1. ✓ Commit code to GitHub
+2. □ Create Railway project
+3. □ Set Root Directory to "backend"
+4. □ Add environment variables
+5. □ Deploy
+6. □ Test health endpoint
+7. □ Update frontend with Railway URL
+
+## Test Commands
+```bash
+# Health check
+curl https://YOUR-APP.up.railway.app/health
+
+# API docs
+curl https://YOUR-APP.up.railway.app/docs
+```
+
+## Troubleshooting
+- If build fails: Check Root Directory = "backend"
+- If app won't start: Check environment variables
+- If 502 error: Check logs for port binding
+- If 500 error: Check DATABASE_URL and API keys

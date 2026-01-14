@@ -40,11 +40,11 @@ if grep -q "YOUR-PASSWORD" .env || grep -q "PROJECT-REF" .env; then
 fi
 
 echo "✅ Environment configured"
-echo "🌐 Starting server on http://localhost:8000"
-echo "📚 API docs will be at http://localhost:8000/docs"
+echo "🌐 Starting server on http://localhost:8001"
+echo "📚 API docs will be at http://localhost:8001/docs"
 echo ""
 echo "Press CTRL+C to stop"
 echo ""
 
 # Start uvicorn
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
