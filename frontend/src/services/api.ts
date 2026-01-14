@@ -4,6 +4,10 @@ import type { UploadResponse } from '../types';
 // Base API URL - update this to match your backend URL
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 
+// Debug: Log the API URL being used
+console.log('🔗 API Base URL:', API_BASE_URL);
+console.log('🔗 VITE_API_URL env var:', import.meta.env.VITE_API_URL);
+
 // Create axios instance with default config
 const api = axios.create({
   baseURL: API_BASE_URL,
