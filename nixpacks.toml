@@ -1,16 +1,11 @@
 [phases.setup]
-nixPkgs = ["python312", "postgresql"]
-aptPkgs = []
+nixPkgs = ["python312", "python312Packages.pip", "postgresql"]
 
 [phases.install]
-cmds = [
-  "python3.12 -m ensurepip --default-pip",
-  "python3.12 -m pip install --upgrade pip setuptools wheel",
-  "python3.12 -m pip install -r backend/requirements.txt"
-]
+cmds = ["pip install -r backend/requirements.txt"]
 
 [phases.build]
 cmds = []
 
 [start]
-cmd = "cd backend && python3.12 -m uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2"
+cmd = "cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2"
