@@ -15,18 +15,11 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Configure CORS
+# Configure CORS - Temporarily allow all origins for debugging
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite dev server (default)
-        "http://localhost:5174",  # Vite dev server (alternate port)
-        "http://localhost:3000",  # Alternative frontend port
-        "https://mock-interview-app-git-main-mbmirjis-projects.vercel.app",  # Vercel git deployment
-        "https://mock-interview-app-phi.vercel.app",  # Vercel production domain
-        "https://mock-interview-app.vercel.app",  # Vercel custom domain (if different)
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],  # TEMPORARY: Allow all origins for testing
+    allow_credentials=False,  # Must be False when using wildcard
     allow_methods=["*"],
     allow_headers=["*"],
 )
