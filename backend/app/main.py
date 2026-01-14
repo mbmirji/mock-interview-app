@@ -22,7 +22,10 @@ app.add_middleware(
         "http://localhost:5173",  # Vite dev server (default)
         "http://localhost:5174",  # Vite dev server (alternate port)
         "http://localhost:3000",  # Alternative frontend port
-    ],  # In production, add your Vercel domain
+        "https://mock-interview-app-git-main-mbmirjis-projects.vercel.app",  # Vercel deployment
+        "https://*.vercel.app",  # All Vercel preview deployments
+        "https://mock-interview-app.vercel.app",  # Production Vercel domain (if different)
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
