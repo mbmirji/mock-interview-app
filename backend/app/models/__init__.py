@@ -64,6 +64,10 @@ class InterviewSession(Base):
     total_questions = Column(Integer, default=0, nullable=False)
     answered_questions = Column(Integer, default=0, nullable=False)
     average_score = Column(Float, nullable=True)
+    
+    # Evaluation status
+    evaluation_status = Column(String(20), default="not_started")  # not_started, in_progress, completed
+    evaluated_at = Column(DateTime(timezone=True), nullable=True)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -101,6 +105,32 @@ class InterviewQuestion(Base):
 
     # Relationships
     session = relationship("InterviewSession", back_populates="questions")
+    audio_response = relationship("AudioResponse", back_populates="question", uselist=False, cascade="all, delete-orphan")
+
+
+class AudioResponse(Base):
+    """Audio response for an interview question"""
+    __tablename__ = "audio_responses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    question_id = Column(Integer, ForeignKey("interview_questions.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+
+    # Audio file info
+    audio_url = Column(String(500), nullable=False)       # Supabase Storage URL
+    audio_filename = Column(String(255), nullable=True)
+    audio_duration_seconds = Column(Float, nullable=True)
+    mime_type = Column(String(50), nullable=True)         # audio/webm, audio/wav
+
+    # Transcription (populated immediately after upload)
+    transcript = Column(Text, nullable=True)
+    transcription_status = Column(String(20), default="pending")  # pending, completed, failed
+
+    # Timestamps
+    recorded_at = Column(DateTime(timezone=True), server_default=func.now())
+    transcribed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationship
+    question = relationship("InterviewQuestion", back_populates="audio_response")
 
 
 # Legacy model - kept for backward compatibility, consider migrating to new schema

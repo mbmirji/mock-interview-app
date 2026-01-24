@@ -23,6 +23,11 @@ class Settings(BaseSettings):
 
     # Railway deployment settings
     port: int = 8000
+    
+    # Supabase settings
+    supabase_url: str = ""
+    supabase_service_key: str = ""
+    supabase_storage_bucket: str = "audio-answers"
 
     class Config:
         env_file = ".env"

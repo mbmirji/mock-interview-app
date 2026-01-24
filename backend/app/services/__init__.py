@@ -2,6 +2,7 @@ import google.generativeai as genai
 from app.config import get_settings
 from typing import List, Dict
 import json
+from .storage import StorageService
 
 settings = get_settings()
 
@@ -89,6 +90,72 @@ Example format:
             return []
         except Exception as e:
             print(f"Error generating questions with Gemini: {str(e)}")
+            return []
+
+    def transcribe_audio(self, audio_bytes: bytes, mime_type: str = "audio/webm") -> str:
+        """
+        Transcribe audio using Gemini. Returns text only.
+        """
+        prompt = "Transcribe the following audio file. Return ONLY the transcript text, nothing else."
+        
+        try:
+            response = self.model.generate_content([
+                prompt,
+                {
+                    "mime_type": mime_type,
+                    "data": audio_bytes
+                }
+            ])
+            return response.text.strip()
+        except Exception as e:
+            print(f"Error transcribing audio: {e}")
+            return ""
+
+    def batch_score_answers(self, answers: List[dict]) -> List[dict]:
+        """
+        Score multiple Q&A pairs in one API call.
+        Input: [{"question": str, "expected": str, "user_answer": str, "question_id": int}, ...]
+        Returns: [{"question_id": int, "score": float, "feedback": str}, ...]
+        """
+        if not answers:
+            return []
+            
+        data_json = json.dumps(answers, indent=2)
+        
+        prompt = f"""You are an expert interviewer evaluating candidate answers.
+Below is a JSON list of interview questions, expected answers, and the candidate's actual answers.
+
+DATA:
+{data_json}
+
+INSTRUCTIONS:
+For EACH item, evaluate the candidate's answer based on the expected answer and general correctness.
+Provide a score (0-10, one decimal place allowed) and constructive feedback (2-3 sentences).
+Return the result as a JSON ARRAY of objects, where each object corresponds to an input item.
+Each output object MUST contain:
+- "question_id": (integer, matching input)
+- "score": (number between 0 and 10)
+- "feedback": (string)
+
+Format your response ONLY as valid JSON.
+"""
+
+        try:
+            response = self.model.generate_content(prompt)
+             # Extract text from response
+            response_text = response.text.strip()
+
+            # Remove markdown code blocks if present
+            if response_text.startswith("```json"):
+                response_text = response_text.replace("```json", "").replace("```", "").strip()
+            elif response_text.startswith("```"):
+                response_text = response_text.replace("```", "").strip()
+
+            results = json.loads(response_text)
+            return results
+        except Exception as e:
+            print(f"Error batch scoring: {e}")
+            # Return empty scores or handle gracefully
             return []
 
 

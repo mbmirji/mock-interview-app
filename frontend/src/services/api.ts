@@ -47,3 +47,57 @@ export const healthCheck = async (): Promise<{ status: string }> => {
 };
 
 export default api;
+
+// New Voice Interview API
+
+import type { InterviewSession } from '../types';
+
+export const createSession = async (
+  resumeFile: File,
+  jobDescFile: File
+): Promise<InterviewSession> => {
+  const formData = new FormData();
+  formData.append('resume_file', resumeFile);
+  formData.append('job_desc_file', jobDescFile);
+
+  const response = await api.post<InterviewSession>('/api/v1/sessions', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
+};
+
+export const getSession = async (sessionId: number): Promise<InterviewSession> => {
+  const response = await api.get<InterviewSession>(`/api/v1/sessions/${sessionId}`);
+  return response.data;
+};
+
+export const recordAnswer = async (
+  sessionId: number,
+  questionId: number,
+  audioBlob: Blob
+): Promise<{ audio_url: string; transcript: string; question_id: number }> => {
+  const formData = new FormData();
+  formData.append('audio_file', audioBlob, 'recording.webm');
+
+  const response = await api.post(
+    `/api/v1/sessions/${sessionId}/questions/${questionId}/record`,
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+  return response.data;
+};
+
+export const evaluateSession = async (sessionId: number): Promise<{
+  success: boolean;
+  average_score: number;
+  results: any[];
+}> => {
+  const response = await api.post(`/api/v1/sessions/${sessionId}/evaluate`);
+  return response.data;
+};

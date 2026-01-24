@@ -5,9 +5,13 @@ import io
 import pdfplumber
 from docx import Document
 from app.database import get_db
-from app.models import Interview
-from app.schemas import InterviewResponse, InterviewQuestionsResponse
+from app.database import get_db
+from app.models import Interview, InterviewSession, InterviewQuestion, AudioResponse, SessionStatus, QuestionType
+from app.schemas import InterviewResponse, InterviewQuestionsResponse, InterviewSessionSchema
 from app.services import get_llm_service, LLMService
+from app.services.storage import StorageService
+from datetime import datetime
+import json
 
 router = APIRouter()
 
@@ -150,3 +154,223 @@ def get_interview_questions(interview_id: int, db: Session = Depends(get_db)):
     return InterviewQuestionsResponse(
         id=interview.id, questions_answers=interview.questions_answers or []
     )
+
+
+def get_storage_service():
+    return StorageService()
+
+
+@router.post("/sessions", response_model=InterviewSessionSchema)
+async def create_session(
+    resume_file: UploadFile = File(...),
+    job_desc_file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    llm_service: LLMService = Depends(get_llm_service),
+):
+    """
+    Create a new interview session.
+    1. Uploads and extracts text from resume/JD
+    2. Generates interview questions
+    3. Creates session and questions in DB (generic user)
+    """
+    # Validate files
+    validate_file_type(resume_file.filename)
+    
+    # Extract text
+    resume_bytes = await resume_file.read()
+    resume_content = extract_text_from_file(resume_bytes, resume_file.filename)
+    
+    job_desc_bytes = await job_desc_file.read()
+    job_desc_content = extract_text_from_file(job_desc_bytes, job_desc_file.filename)
+    
+    # Generate questions
+    questions_data = llm_service.generate_interview_questions(resume_content, job_desc_content)
+    
+    # Create Session (User ID 1 = anonymous)
+    session = InterviewSession(
+        user_id=1,
+        resume_filename=resume_file.filename,
+        resume_text=resume_content,
+        jd_filename=job_desc_file.filename,
+        jd_text=job_desc_content,
+        total_questions=len(questions_data),
+        status=SessionStatus.IN_PROGRESS
+    )
+    db.add(session)
+    db.flush()  # Get ID
+    
+    # Create Questions
+    for idx, q_data in enumerate(questions_data, 1):
+        question = InterviewQuestion(
+            session_id=session.id,
+            question_number=idx,
+            question_text=q_data.get("question", ""),
+            expected_answer=q_data.get("answer", ""),
+            question_type=QuestionType.BEHAVIORAL  # Default, or infer from LLM
+        )
+        db.add(question)
+    
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+@router.get("/sessions/{session_id}", response_model=InterviewSessionSchema)
+def get_session(session_id: int, db: Session = Depends(get_db)):
+    """Get session details including questions and audio responses"""
+    session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+
+@router.post("/sessions/{session_id}/questions/{question_id}/record")
+async def record_answer(
+    session_id: int,
+    question_id: int,
+    audio_file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    storage_service: StorageService = Depends(get_storage_service),
+    llm_service: LLMService = Depends(get_llm_service),
+):
+    """
+    Upload audio answer, transcribe it, and save to DB.
+    """
+    # Verify ownership/existence
+    question = db.query(InterviewQuestion).filter(
+        InterviewQuestion.id == question_id,
+        InterviewQuestion.session_id == session_id
+    ).first()
+    
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+        
+    # Read audio
+    audio_bytes = await audio_file.read()
+    
+    # Upload to Supabase
+    try:
+        audio_url = storage_service.upload_audio(
+            audio_bytes, 
+            audio_file.filename or "recording.webm",
+            audio_file.content_type or "audio/webm"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        
+    # Transcribe
+    transcript = llm_service.transcribe_audio(
+        audio_bytes, 
+        audio_file.content_type or "audio/webm"
+    )
+    
+    # Update/Create AudioResponse
+    if question.audio_response:
+        audio_resp = question.audio_response
+        audio_resp.audio_url = audio_url
+        audio_resp.transcript = transcript
+        audio_resp.transcription_status = "completed" if transcript else "failed"
+        audio_resp.transcribed_at = datetime.now()
+    else:
+        audio_resp = AudioResponse(
+            question_id=question.id,
+            audio_url=audio_url,
+            transcript=transcript,
+            transcription_status="completed" if transcript else "failed",
+            transcribed_at=datetime.now(),
+            mime_type=audio_file.content_type
+        )
+        db.add(audio_resp)
+        
+    # Update Question
+    question.user_answer = transcript
+    question.answered_at = datetime.now()
+    
+    # Update Session progress
+    session = question.session
+    session.answered_questions = db.query(InterviewQuestion).filter(
+        InterviewQuestion.session_id == session_id,
+        InterviewQuestion.user_answer.isnot(None)
+    ).count() + 1 # +1 as we just answered current one (if not counted yet)
+    
+    # Better count logic:
+    # Actually counting is safer
+    db.commit() # Commit first to save user_answer
+    
+    count = db.query(InterviewQuestion).filter(
+        InterviewQuestion.session_id == session_id,
+        InterviewQuestion.user_answer != None
+    ).count()
+    session.answered_questions = count
+    
+    db.commit()
+    db.refresh(question)
+    
+    return {
+        "audio_url": audio_url,
+        "transcript": transcript,
+        "question_id": question.id
+    }
+
+
+@router.post("/sessions/{session_id}/evaluate")
+def evaluate_session(
+    session_id: int, 
+    db: Session = Depends(get_db),
+    llm_service: LLMService = Depends(get_llm_service)
+):
+    """
+    Batch evaluate all answers in the session.
+    """
+    session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    # Prepare data for batch scoring
+    questions_to_score = []
+    for q in session.questions:
+        if q.user_answer:
+            questions_to_score.append({
+                "question_id": q.id,
+                "question": q.question_text,
+                "expected": q.expected_answer,
+                "user_answer": q.user_answer
+            })
+            
+    if not questions_to_score:
+        return {"message": "No answers to evaluate"}
+        
+    # Call LLM
+    results = llm_service.batch_score_answers(questions_to_score)
+    
+    # Update DB
+    total_score = 0
+    scored_count = 0
+    
+    for res in results:
+        q_id = res.get("question_id")
+        score = res.get("score")
+        feedback = res.get("feedback")
+        
+        question = next((q for q in session.questions if q.id == q_id), None)
+        if question:
+            question.score = score
+            question.feedback = feedback
+            if score is not None:
+                total_score += score
+                scored_count += 1
+                
+    if scored_count > 0:
+        session.average_score = total_score / scored_count
+        
+    session.evaluation_status = "completed"
+    session.evaluated_at = datetime.now()
+    session.status = SessionStatus.COMPLETED
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "average_score": session.average_score,
+        "results": results
+    }

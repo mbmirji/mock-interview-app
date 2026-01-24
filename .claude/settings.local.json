@@ -8,7 +8,23 @@
       "Bash(brew install:*)",
       "Bash(export PATH=\"/opt/homebrew/opt/postgresql@15/bin:$PATH\")",
       "Bash(chmod:*)",
-      "Bash(python create_tables.py)"
+      "Bash(python create_tables.py)",
+      "Bash(pytest:*)",
+      "Bash(npm create:*)",
+      "Bash(npm install)",
+      "Bash(npm install:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(npm run dev:*)",
+      "Bash(python test_llm.py:*)",
+      "Bash(python:*)",
+      "Bash(git push:*)",
+      "Bash(gh:*)",
+      "Bash(git remote set-url:*)",
+      "Bash(git add:*)",
+      "Bash(git reset:*)",
+      "Bash(git rm:*)",
+      "Bash(git commit:*)",
+      "WebFetch(domain:ai.google.dev)"
     ]
   }
 }

@@ -17,3 +17,30 @@ export interface UploadResponse {
 export interface ApiError {
   detail: string;
 }
+
+export interface AudioResponse {
+  id: number;
+  audio_url: string;
+  transcript: string | null;
+  transcription_status: 'pending' | 'completed' | 'failed';
+}
+
+export interface InterviewQuestion {
+  id: number;
+  question_number: number;
+  question_text: string;
+  expected_answer: string;
+  user_answer?: string | null;
+  audio_response?: AudioResponse | null;
+  score?: number | null;
+  feedback?: string | null;
+}
+
+export interface InterviewSession {
+  id: number;
+  status: 'created' | 'in_progress' | 'completed';
+  total_questions: number;
+  answered_questions: number;
+  average_score?: number | null;
+  questions: InterviewQuestion[];
+}
