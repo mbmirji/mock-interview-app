@@ -22,7 +22,8 @@ class LLMService:
         Generate 10-15 interview questions based on resume and job description
         """
         prompt = f"""You are an expert technical interviewer. Based on the following resume and job description,
-generate 10-15 relevant interview questions along with reference answers.
+generate EXACTLY ONE (1) relevant interview question along with a short reference answer.
+The question should be concise and focused, suitable for a quick voice answer test.
 
 Resume:
 {resume_content}
@@ -31,19 +32,13 @@ Job Description:
 {job_description}
 
 Please provide the output as a JSON array with objects containing 'question' and 'answer' keys.
-The questions should cover:
-1. Technical skills mentioned in the resume
-2. Experience related to the job requirements
-3. Behavioral questions relevant to the role
-4. Scenario-based questions matching the job description
 
 Format your response ONLY as a valid JSON array, nothing else. Do not include any markdown code blocks or explanations.
 Just return the raw JSON array.
 
 Example format:
 [
-  {{"question": "Tell me about...", "answer": "A good answer would..."}},
-  {{"question": "Describe your experience with...", "answer": "The candidate should..."}}
+  {{"question": "Briefly describe your experience with...", "answer": "Answer should highlight..."}}
 ]
 """
 
