@@ -1,16 +1,24 @@
 import React, { useState } from 'react';
 import { FileUpload } from '../components/FileUpload';
-import { QuestionList } from '../components/QuestionList';
-import { uploadResumeAndJobDescription } from '../services/api';
-import type { Question } from '../types';
+import { createSession, recordAnswer, evaluateSession } from '../services/api';
+import type { InterviewSession } from '../types';
+import SingleQuestionView from '../components/SingleQuestionView';
+import QuestionNavigator from '../components/QuestionNavigator';
+import ResultsView from '../components/ResultsView';
 
 export const UploadPage: React.FC = () => {
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [jobDescFile, setJobDescFile] = useState<File | null>(null);
   const [additionalContext, setAdditionalContext] = useState('');
+
+  // Session State
+  const [session, setSession] = useState<InterviewSession | null>(null);
+  const [currentQIndex, setCurrentQIndex] = useState(0);
+  const [step, setStep] = useState<'upload' | 'interview' | 'evaluating' | 'results'>('upload');
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
 
   const handleResumeSelect = (selectedFile: File) => {
     setResumeFile(selectedFile);
@@ -39,16 +47,85 @@ export const UploadPage: React.FC = () => {
     setError('');
 
     try {
-      const response = await uploadResumeAndJobDescription(resumeFile, jobDescFile, additionalContext);
-      setQuestions(response.questions);
+      // Use createSession instead of the old upload endpoint
+      const newSession = await createSession(resumeFile, jobDescFile);
+      setSession(newSession);
+      setStep('interview');
     } catch (err: any) {
       console.error('Upload error:', err);
       setError(
         err.response?.data?.detail ||
-        'Failed to upload. Please check your backend server is running and try again.'
+        'Failed to start session. Please check your backend server is running and try again.'
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAnswerRecorded = async (audioBlob: Blob) => {
+    if (!session) return;
+
+    setIsUploadingAudio(true);
+    const question = session.questions[currentQIndex];
+
+    try {
+      const result = await recordAnswer(session.id, question.id, audioBlob);
+
+      const updatedQuestions = [...session.questions];
+      updatedQuestions[currentQIndex] = {
+        ...question,
+        user_answer: result.transcript,
+        audio_response: {
+          id: 0,
+          audio_url: result.audio_url,
+          transcript: result.transcript,
+          transcription_status: 'completed'
+        }
+      };
+
+      setSession({
+        ...session,
+        questions: updatedQuestions,
+        answered_questions: session.answered_questions + 1 // Local optimistic update or rely on response
+      });
+
+    } catch (err) {
+      console.error(err);
+      alert("Failed to upload/transcribe answer");
+    } finally {
+      setIsUploadingAudio(false);
+    }
+  };
+
+  const handleSubmitAll = async () => {
+    if (!session) return;
+
+    if (confirm("Are you sure you want to finish and get your evaluation?")) {
+      setStep('evaluating');
+      try {
+        const result = await evaluateSession(session.id);
+
+        // Merge results
+        const updatedQuestions = session.questions.map(q => {
+          const res = result.results.find((r: any) => r.question_id === q.id);
+          if (res) {
+            return { ...q, score: res.score, feedback: res.feedback };
+          }
+          return q;
+        });
+
+        setSession({
+          ...session,
+          questions: updatedQuestions,
+          average_score: result.average_score,
+          status: 'completed'
+        });
+        setStep('results');
+      } catch (err) {
+        console.error(err);
+        alert("Evaluation failed");
+        setStep('interview');
+      }
     }
   };
 
@@ -56,7 +133,9 @@ export const UploadPage: React.FC = () => {
     setResumeFile(null);
     setJobDescFile(null);
     setAdditionalContext('');
-    setQuestions([]);
+    setSession(null);
+    setStep('upload');
+    setCurrentQIndex(0);
     setError('');
   };
 
@@ -90,7 +169,7 @@ export const UploadPage: React.FC = () => {
         </div>
 
         {/* Upload Form */}
-        {questions.length === 0 ? (
+        {step === 'upload' ? (
           <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
             {/* Progress Steps */}
             <div className="mb-8">
@@ -252,10 +331,9 @@ export const UploadPage: React.FC = () => {
                 className={`
                   w-full py-4 px-6 rounded-xl font-bold text-lg text-white
                   transition-all duration-200 shadow-lg
-                  ${
-                    loading || !resumeFile || !jobDescFile
-                      ? 'bg-gray-300 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:via-indigo-700 hover:to-purple-700 transform hover:scale-105'
+                  ${loading || !resumeFile || !jobDescFile
+                    ? 'bg-gray-300 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:via-indigo-700 hover:to-purple-700 transform hover:scale-105'
                   }
                 `}
               >
@@ -311,17 +389,62 @@ export const UploadPage: React.FC = () => {
                 </div>
                 <div className="flex-grow">
                   <h3 className="text-xl font-bold text-green-900 mb-1">
-                    🎉 Success! Your Questions Are Ready
+                    🎉 Success! Your Interview is Ready
                   </h3>
                   <p className="text-green-700">
-                    We've generated <span className="font-bold">{questions.length} personalized interview questions</span> based on your resume and job description.
+                    We've generated <span className="font-bold">{session?.total_questions || 0} personalized interview questions</span> based on your resume and job description.
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Question List */}
-            <QuestionList questions={questions} />
+            {/* Voice Interview Flow */}
+            {session && step === 'interview' && (
+              <div className="space-y-6">
+                <QuestionNavigator
+                  currentQuestionIndex={currentQIndex}
+                  totalQuestions={session.questions.length}
+                  answeredCount={session.questions.filter(q => q.user_answer).length}
+                  onNavigate={setCurrentQIndex}
+                  canNavigateNext={!!session.questions[currentQIndex]?.user_answer}
+                />
+
+                <SingleQuestionView
+                  question={session.questions[currentQIndex]}
+                  onAnswerRecorded={handleAnswerRecorded}
+                  isUploading={isUploadingAudio}
+                />
+
+                <div className="mt-8 flex justify-center">
+                  {session.questions.filter(q => q.user_answer).length === session.questions.length && (
+                    <button
+                      onClick={handleSubmitAll}
+                      className="px-8 py-4 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold shadow-lg transform hover:scale-105 transition-all flex items-center gap-2"
+                    >
+                      ✅ Submit All & Get Results
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Evaluation Loading */}
+            {step === 'evaluating' && (
+              <div className="flex flex-col items-center justify-center py-20 bg-white rounded-2xl shadow-xl">
+                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mb-6"></div>
+                <h2 className="text-2xl font-bold text-gray-800 mb-2">Analyzing your answers...</h2>
+                <p className="text-gray-500">Our AI coach is reviewing your responses.</p>
+              </div>
+            )}
+
+            {/* Results */}
+            {step === 'results' && session && (
+              <div className="space-y-6">
+                <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6">
+                  <ResultsView session={session} />
+                </div>
+              </div>
+            )}
 
             {/* Reset Button */}
             <div className="flex justify-center pt-6">
